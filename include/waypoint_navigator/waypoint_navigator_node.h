@@ -28,17 +28,19 @@
 #include <mav_trajectory_generation/trajectory.h>
 #include <mav_trajectory_generation_ros/ros_conversions.h>
 #include <mav_trajectory_generation_ros/ros_visualization.h>
+#include <sensor_msgs/Joy.h>
 #include <nav_msgs/Path.h>
 #include <planning_msgs/PolynomialTrajectory4D.h>
 #include <ros/callback_queue.h>
 #include <ros/ros.h>
 #include <std_srvs/Empty.h>
 #include <stdio.h>
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
-#include <Eigen/Eigen>
 #include <geodetic_utils/geodetic_conv.hpp>
-#include "tf/tf.h"
+#include "tf2/LinearMath/Vector3.h"
+#include "tf2/LinearMath/Matrix3x3.h"
+#include "tf2/LinearMath/Quaternion.h"
+#include <tf2_ros/transform_listener.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 
 #include <waypoint_navigator/ExecutePathFromFile.h>
 #include <waypoint_navigator/GoToHeight.h>
@@ -56,11 +58,11 @@ class WaypointNavigatorNode {
 
  private:
   // Fetches parameters from the ROS server.
-  void loadParameters();
+  void updateParameters();
   // Read a series of waypoints from file
   // NB: Only call after odometry has been received, as
   // MAV position is set as first point.
-  bool loadPathFromFile();
+  bool parseWaypoints();
 
   // Interpolates intermediate points between waypoints in a sequence.
   void addIntermediateWaypoints();
@@ -142,6 +144,9 @@ class WaypointNavigatorNode {
 
   ros::Subscriber odometry_subscriber_;
 
+  tf2_ros::Buffer tf_buffer;
+  tf2_ros::TransformListener tf_listener;
+
   ros::ServiceServer visualize_service_;
   ros::ServiceServer start_service_;
   ros::ServiceServer takeoff_service_;
@@ -164,6 +169,8 @@ class WaypointNavigatorNode {
   std::string heading_mode_;
   std::string mav_name_;
   std::string frame_id_;
+  std::string transform_to_frame_id_;
+  std::string transform_focus_frame_id_;
   // Addition of intermediate command poses.
   bool intermediate_poses_;
   // Maximum distance between poses [m].
@@ -198,6 +205,11 @@ class WaypointNavigatorNode {
   mav_trajectory_generation::Vertex::Vector polynomial_vertices_;
   mav_trajectory_generation::Trajectory yaw_trajectory_;
   mav_trajectory_generation::Vertex::Vector yaw_vertices_;
+
+  std::vector<double> eastings_;
+  std::vector<double> northings_;
+  std::vector<double> heights_;
+  std::vector<double> headings_;
 
   // Callback number for command_timer_.
   unsigned int timer_counter_;

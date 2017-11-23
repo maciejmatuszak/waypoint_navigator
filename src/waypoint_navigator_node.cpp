@@ -29,7 +29,7 @@
 #include <ctime>
 #include <fstream>
 #include <iostream>
-
+#include <Eigen/Eigen>
 #include <waypoint_navigator/waypoint_navigator_node.h>
 
 namespace waypoint_navigator {
@@ -46,10 +46,13 @@ WaypointNavigatorNode::WaypointNavigatorNode(const ros::NodeHandle& nh,
                                              const ros::NodeHandle& nh_private)
     : nh_(nh),
       nh_private_(nh_private),
-      got_odometry_(false)
+      got_odometry_(false),
+      tf_buffer(),
+      tf_listener(tf_buffer)
 
 {
-  loadParameters();
+  updateParameters();
+
 
   odometry_subscriber_ = nh_.subscribe(
       "odometry", 1, &WaypointNavigatorNode::odometryCallback, this);
@@ -109,7 +112,7 @@ WaypointNavigatorNode::WaypointNavigatorNode(const ros::NodeHandle& nh,
       << "Waypoint navigator ready. Call 'execute_path' service to get going.";
 }
 
-void WaypointNavigatorNode::loadParameters() {
+void WaypointNavigatorNode::updateParameters() {
   CHECK(
       nh_private_.getParam("coordinate_type", coordinate_type_) &&
       nh_private_.getParam("path_mode", path_mode_) &&
@@ -120,10 +123,14 @@ void WaypointNavigatorNode::loadParameters() {
       nh_private_.getParam("landing_height", landing_height_) &&
       nh_private_.getParam("mav_name", mav_name_) &&
       nh_private_.getParam("frame_id", frame_id_) &&
-      nh_private_.getParam("intermediate_poses", intermediate_poses_))
+      nh_private_.getParam("transform_to_frame_id", transform_to_frame_id_) &&
+      nh_private_.getParam("intermediate_poses", intermediate_poses_) &&
+      nh_private_.getParam("easting", eastings_) &&
+      nh_private_.getParam("northing", northings_) &&
+      nh_private_.getParam("height", heights_))
       << "Error loading parameters!";
 
-  if (coordinate_type_ == "gps" || coordinate_type_ == "enu") {
+  if (coordinate_type_ == "gps" || coordinate_type_ == "enu"){
   } else {
     LOG(FATAL) << ("Unknown coordinate type - please enter 'gps' or 'enu'.");
   }
@@ -133,11 +140,31 @@ void WaypointNavigatorNode::loadParameters() {
     LOG(FATAL) << "Unknown path type - please enter 'poses', or 'trajectory'.";
   }
 
-  if (heading_mode_ == "auto" || heading_mode_ == "manual" ||
+  if (heading_mode_ == "auto" ||
+      heading_mode_ == "manual" ||
+      heading_mode_ == "focus" ||
       heading_mode_ == "zero") {
   } else {
     LOG(FATAL) << "Unknown heading alignment mode - please enter 'auto', "
                   "'manual', or 'zero'.";
+  }
+
+  if (heading_mode_ == "manual" && !nh_private_.getParam("heading", headings_)) {
+    LOG(FATAL) << "Headings in manual mode is unspecified!";
+  }
+
+  if (heading_mode_ == "focus" && !nh_private_.getParam("transform_focus_frame_id", transform_focus_frame_id_)) {
+    LOG(FATAL) << "transform_focus_frame_id in focus mode is required!";
+  }
+
+  // Check for valid trajectory inputs.
+  if (!(eastings_.size() == northings_.size() &&
+        northings_.size() == heights_.size())) {
+    LOG(FATAL) << "Error: path parameter arrays are not the same size";
+  }
+
+  if (heading_mode_ == "manual" && !(heights_.size() == headings_.size())) {
+    LOG(FATAL) << "Error: path parameter arrays are not the same size";
   }
 
   if (intermediate_poses_) {
@@ -148,36 +175,72 @@ void WaypointNavigatorNode::loadParameters() {
   }
 }
 
-bool WaypointNavigatorNode::loadPathFromFile() {
-  // Fetch the trajectory from the parameter server.
-  std::vector<double> easting;
-  std::vector<double> northing;
-  std::vector<double> height;
-  std::vector<double> heading;
+bool WaypointNavigatorNode::parseWaypoints() {
 
-  CHECK(nh_private_.getParam("easting", easting) &&
-        nh_private_.getParam("northing", northing) &&
-        nh_private_.getParam("height", height))
-      << "Error loading path parameters!";
+  updateParameters();
 
-  if (heading_mode_ == "manual" && !nh_private_.getParam("heading", heading)) {
-    LOG(FATAL) << "Heading in manual mode is unspecified!";
-  }
-
-  // Check for valid trajectory inputs.
-  if (!(easting.size() == northing.size() &&
-        northing.size() == height.size())) {
-    LOG(FATAL) << "Error: path parameter arrays are not the same size";
-  }
-  if (heading_mode_ == "manual" && !(height.size() == heading.size())) {
-    LOG(FATAL) << "Error: path parameter arrays are not the same size";
-  }
 
   coarse_waypoints_.clear();
   addCurrentOdometryWaypoint();
 
+  tf2::Vector3 translation_to_sp;
+  tf2::Vector3 heading_focus_point;
+  tf2::Matrix3x3 rotation_to_sp;
+  double yaw_sp =0;
+
+  if(transform_to_frame_id_.size() >0)
+  {
+
+    try
+    {
+        geometry_msgs::TransformStamped transformStamped;
+        ROS_INFO("looking up transform world > %s", transform_to_frame_id_.c_str());
+
+        transformStamped = tf_buffer.lookupTransform("world", transform_to_frame_id_, ros::Time(0));
+        translation_to_sp.setX(transformStamped.transform.translation.x);
+        translation_to_sp.setY(transformStamped.transform.translation.y);
+        translation_to_sp.setZ(transformStamped.transform.translation.z);
+
+        tf2::Quaternion rot(transformStamped.transform.rotation.x,
+                            transformStamped.transform.rotation.y,
+                            transformStamped.transform.rotation.z,
+                            transformStamped.transform.rotation.w);
+        double r,p;
+        rotation_to_sp = tf2::Matrix3x3(rot);
+        // cleanup to make sure only yaw is applied
+        rotation_to_sp.getRPY(r,p, yaw_sp);
+        rotation_to_sp.setRotation(tf2::Quaternion(0.0, 0.0, yaw_sp));
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_ERROR("Transform Lookup failed: %s",ex.what());
+        ros::Duration(1.0).sleep();
+    }
+  }
+
+  if(heading_mode_ == "focus")
+  {
+
+    try
+    {
+        geometry_msgs::TransformStamped transformStamped;
+        ROS_INFO("looking up transform world > %s", transform_focus_frame_id_.c_str());
+
+        transformStamped = tf_buffer.lookupTransform("world", transform_focus_frame_id_, ros::Time(0));
+        heading_focus_point.setX(transformStamped.transform.translation.x);
+        heading_focus_point.setY(transformStamped.transform.translation.y);
+        heading_focus_point.setZ(transformStamped.transform.translation.z);
+
+    }
+    catch (tf2::TransformException ex)
+    {
+        ROS_ERROR("Transform Lookup failed: %s",ex.what());
+        ros::Duration(1.0).sleep();
+    }
+  }
+
   // Add (x,y,z) co-ordinates from file to path.
-  for (size_t i = 0; i < easting.size(); i++) {
+  for (size_t i = 0; i < eastings_.size(); i++) {
     mav_msgs::EigenTrajectoryPoint cwp;
     // GPS path co-ordinates.
     if (coordinate_type_ == "gps") {
@@ -191,14 +254,17 @@ bool WaypointNavigatorNode::loadPathFromFile() {
       geodetic_converter_.getReference(&initial_latitude, &initial_longitude,
                                        &initial_altitude);
       geodetic_converter_.geodetic2Enu(
-          northing[i], easting[i], (initial_altitude + height[i]),
+          northings_[i], eastings_[i], (initial_altitude + heights_[i]),
           &cwp.position_W.x(), &cwp.position_W.y(), &cwp.position_W.z());
     }
     // ENU path co-ordinates.
     else if (coordinate_type_ == "enu") {
-      cwp.position_W.x() = easting[i];
-      cwp.position_W.y() = northing[i];
-      cwp.position_W.z() = height[i];
+      tf2::Vector3 tempPt(eastings_[i], northings_[i], heights_[i]);
+      tempPt = rotation_to_sp * tempPt;
+      tempPt = tempPt + translation_to_sp;
+      cwp.position_W.x() = tempPt.x();
+      cwp.position_W.y() = tempPt.y();
+      cwp.position_W.z() = tempPt.z();
     }
     coarse_waypoints_.push_back(cwp);
   }
@@ -206,15 +272,24 @@ bool WaypointNavigatorNode::loadPathFromFile() {
   // Add heading from file to path.
   for (size_t i = 1; i < coarse_waypoints_.size(); i++) {
     if (heading_mode_ == "manual") {
-      coarse_waypoints_[i].setFromYaw(heading[i] * (M_PI / 180.0));
+        //heading from file
+        double heading = headings_[i] * (M_PI / 180.0);
+        //adjust for rotation
+        heading += yaw_sp;
+      coarse_waypoints_[i].setFromYaw(heading);
     } else if (heading_mode_ == "auto") {
-      // Compute heading in direction towards next point.
-      coarse_waypoints_[i].setFromYaw(
-          atan2(coarse_waypoints_[i].position_W.y() -
-                    coarse_waypoints_[i - 1].position_W.y(),
-                coarse_waypoints_[i].position_W.x() -
-                    coarse_waypoints_[i - 1].position_W.x()));
-    } else if (heading_mode_ == "zero") {
+        // Compute heading in direction towards next point.
+        coarse_waypoints_[i].setFromYaw(
+            atan2(coarse_waypoints_[i].position_W.y() -
+                      coarse_waypoints_[i - 1].position_W.y(),
+                  coarse_waypoints_[i].position_W.x() -
+                      coarse_waypoints_[i - 1].position_W.x()));
+      }else if (heading_mode_ == "focus") {
+        // Compute heading in direction towards next point.
+        coarse_waypoints_[i].setFromYaw(
+            atan2(heading_focus_point.getY() - coarse_waypoints_[i].position_W.y(),
+                  heading_focus_point.getX() - coarse_waypoints_[i].position_W.x()));
+      } else if (heading_mode_ == "zero") {
       coarse_waypoints_[i].setFromYaw(0.0);
     }
   }
@@ -233,8 +308,11 @@ bool WaypointNavigatorNode::loadPathFromFile() {
       // Do not change heading.
       vwp.orientation_W_B = coarse_waypoints_[0].orientation_W_B;
     }
+    //insert as second position
     coarse_waypoints_.insert(coarse_waypoints_.begin() + 1, vwp);
   }
+
+
 
   // Limit maximum distance between waypoints.
   if (intermediate_poses_) {
@@ -380,7 +458,7 @@ bool WaypointNavigatorNode::executePathCallback(
   current_leg_ = 0;
   timer_counter_ = 0;
 
-  CHECK(loadPathFromFile()) << "Path could not be loaded!";
+  CHECK(parseWaypoints()) << "Path could not be loaded!";
 
   // Display the path markers in rviz.
   std_srvs::Empty::Request empty_request;
@@ -554,7 +632,7 @@ bool WaypointNavigatorNode::abortPathCallback(
 bool WaypointNavigatorNode::visualizePathCallback(
     std_srvs::Empty::Request& request, std_srvs::Empty::Response& response) {
   CHECK(got_odometry_) << "No odometry received yet, can't visualize the path.";
-  CHECK(loadPathFromFile()) << "Path could not be loaded!";
+  CHECK(parseWaypoints()) << "Path could not be loaded!";
 
   if (path_mode_ == "polynomial") {
     createTrajectory();
@@ -590,7 +668,7 @@ void WaypointNavigatorNode::poseTimerCallback(const ros::TimerEvent&) {
   pose.pose.position.x = coarse_waypoints_[current_leg_].position_W.x();
   pose.pose.position.y = coarse_waypoints_[current_leg_].position_W.y();
   pose.pose.position.z = coarse_waypoints_[current_leg_].position_W.z();
-  tf::Quaternion orientation = tf::createQuaternionFromRPY(
+  tf2::Quaternion orientation = tf2::Quaternion(
       0.0, 0.0, coarse_waypoints_[current_leg_].getYaw());
   pose.pose.orientation.x = orientation.x();
   pose.pose.orientation.y = orientation.y();

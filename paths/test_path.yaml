@@ -1,8 +1,10 @@
 # Example path with ENU co-ordinates
 
-frame_id: 'tree_scan_center'
 # Format of coordinates ('gps'/'enu')
 coordinate_type: 'enu'
+
+transform_to_frame_id: 'path_start'
+transform_focus_frame_id: 'heading_focus'
 
 # Method of sending commands to controller ('poses'/'polynomial' trajectory)
 path_mode: 'polynomial'
@@ -10,11 +12,11 @@ path_mode: 'polynomial'
 # Limit distance between poses ('true'/'false')
 intermediate_poses: true
 # Maximum distance between poses [m]
-intermediate_pose_separation: 1.0
+intermediate_pose_separation: 0.51
 
 # Maximum speed [m/s] and acceleration [m/s^2]
-reference_speed: 5.0
-reference_acceleration: 1.0
+reference_speed: 50.0
+reference_acceleration: 10.0
 
 # Height for takeoff command [m]
 takeoff_height: 1.0
@@ -25,7 +27,8 @@ landing_height: -0.5
 # 'auto': faces in the direction of travel
 # 'manual': user-specified (below)
 # 'zero': heading is zero for entire trajectory
-heading_mode: 'manual'
+# 'focus': heading pointing toward focus point for entire trajectory. The point is provided as transform word to transform_focus_frame_id at the time of path creation
+heading_mode: 'focus'
 
 # Trajectory
 # x (ENU) [m] / longitude (GPS) [deg]
@@ -35,4 +38,4 @@ northing: [0,-0.92705,-1.7634,-2.4271,-2.8532,-3,-2.8532,-2.4271,-1.7634,-0.9270
 # z (ENU) [m] / altitude (GPS) [m]
 height: [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2]
 # Heading [deg]
-heading: [0,18,36,54,72,90,108,126,144,162,180,-162,-144,-126,-108,-90,-72,-54,-36,-18,0,0,18,36,54,72,90,108,126,144,162,180,-162,-144,-126,-108,-90,-72,-54,-36,-18,0]
+heading: [0,10,20,30,40,50,60,70,80,90,100]

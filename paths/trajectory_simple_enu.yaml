@@ -3,16 +3,18 @@
 # Format of coordinates ('gps'/'enu')
 coordinate_type: 'enu'
 
+transform_to_frame_id: ''
+
 # Method of sending commands to controller ('poses'/'polynomial' trajectory)
 path_mode: 'polynomial'
 
 # Limit distance between poses ('true'/'false')
 intermediate_poses: true
 # Maximum distance between poses [m]
-intermediate_pose_separation: 1.0
+intermediate_pose_separation: 1.0000000000001
 
 # Maximum speed [m/s] and acceleration [m/s^2]
-reference_speed: 0.5
+reference_speed: 5
 reference_acceleration: 1.0
 
 # Height for takeoff command [m]
