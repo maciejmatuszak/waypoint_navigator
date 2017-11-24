@@ -114,6 +114,7 @@ WaypointNavigatorNode::WaypointNavigatorNode(const ros::NodeHandle& nh,
 
 void WaypointNavigatorNode::updateParameters() {
   CHECK(
+      nh_private_.getParam("trajectory_paths_folder", trajectory_paths_folder_) &&
       nh_private_.getParam("coordinate_type", coordinate_type_) &&
       nh_private_.getParam("path_mode", path_mode_) &&
       nh_private_.getParam("heading_mode", heading_mode_) &&
@@ -209,7 +210,7 @@ bool WaypointNavigatorNode::parseWaypoints() {
         rotation_to_sp = tf2::Matrix3x3(rot);
         // cleanup to make sure only yaw is applied
         rotation_to_sp.getRPY(r,p, yaw_sp);
-        rotation_to_sp.setRotation(tf2::Quaternion(0.0, 0.0, yaw_sp));
+        rotation_to_sp.setRotation(tf2::Quaternion(tf2::Vector3(0.0, 0.0, 1.0) , yaw_sp));
     }
     catch (tf2::TransformException ex)
     {
@@ -374,6 +375,7 @@ void WaypointNavigatorNode::createTrajectory() {
     mav_trajectory_generation::Vertex vertex(kDimensions);
     mav_trajectory_generation::Vertex yaw(1);
 
+
     // Position.
     if (i == 0 || i == coarse_waypoints_.size() - 1) {
       vertex.makeStartOrEnd(coarse_waypoints_[i].position_W,
@@ -397,6 +399,7 @@ void WaypointNavigatorNode::createTrajectory() {
       coarse_waypoints_[i].setFromYaw(coarse_waypoints_[i - 1].getYaw() +
                                       yaw_mod);
     }
+
     yaw.addConstraint(mav_trajectory_generation::derivative_order::ORIENTATION,
                       coarse_waypoints_[i].getYaw());
 
@@ -480,8 +483,7 @@ bool WaypointNavigatorNode::executePathFromFileCallback(
   abortPathCallback(empty_request, empty_response);
 
   std::string filename_only = request.filename.data;
-  std::string path_filename =
-      ros::package::getPath("waypoint_navigator") + "/paths/" + filename_only;
+  std::string path_filename = trajectory_paths_folder_ + filename_only;
   std::string load_command =
       "rosparam load " + path_filename + ".yaml " + ros::this_node::getName();
 
@@ -669,8 +671,7 @@ void WaypointNavigatorNode::poseTimerCallback(const ros::TimerEvent&) {
   pose.pose.position.x = coarse_waypoints_[current_leg_].position_W.x();
   pose.pose.position.y = coarse_waypoints_[current_leg_].position_W.y();
   pose.pose.position.z = coarse_waypoints_[current_leg_].position_W.z();
-  tf2::Quaternion orientation = tf2::Quaternion(
-      0.0, 0.0, coarse_waypoints_[current_leg_].getYaw());
+  tf2::Quaternion orientation = tf2::Quaternion(tf2::Vector3(0.0, 0.0, 1.0), coarse_waypoints_[current_leg_].getYaw());
   pose.pose.orientation.x = orientation.x();
   pose.pose.orientation.y = orientation.y();
   pose.pose.orientation.z = orientation.z();

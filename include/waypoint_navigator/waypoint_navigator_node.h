@@ -170,6 +170,7 @@ class WaypointNavigatorNode {
   std::string mav_name_;
   std::string frame_id_;
   std::string transform_to_frame_id_;
+  std::string trajectory_paths_folder_;
   std::string transform_focus_frame_id_;
   // Addition of intermediate command poses.
   bool intermediate_poses_;
