@@ -14,8 +14,8 @@ intermediate_poses: true
 intermediate_pose_separation: 1.0000000000001
 
 # Maximum speed [m/s] and acceleration [m/s^2]
-reference_speed: 5
-reference_acceleration: 1.0
+reference_speed: 10
+reference_acceleration: 5.0
 
 # Height for takeoff command [m]
 takeoff_height: 1.0

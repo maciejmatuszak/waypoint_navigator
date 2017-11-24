@@ -3,19 +3,19 @@
 # Format of coordinates ('gps'/'enu')
 coordinate_type: 'enu'
 
-transform_to_frame_id: 'path_start'
+transform_to_frame_id: 'uav_lock'
 transform_focus_frame_id: 'heading_focus'
 
 # Method of sending commands to controller ('poses'/'polynomial' trajectory)
-path_mode: 'polynomial'
+path_mode: 'poses'
 
 # Limit distance between poses ('true'/'false')
 intermediate_poses: true
 # Maximum distance between poses [m]
-intermediate_pose_separation: 0.51
+intermediate_pose_separation: 1.1
 
 # Maximum speed [m/s] and acceleration [m/s^2]
-reference_speed: 3.0
+reference_speed: 20.0
 reference_acceleration: 5.0
 
 # Height for takeoff command [m]

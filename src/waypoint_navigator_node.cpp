@@ -407,6 +407,7 @@ void WaypointNavigatorNode::createTrajectory() {
   // Optimize the polynomial trajectory.
   // Position.
   std::vector<double> segment_times;
+  ROS_INFO("Calculating segments time: speed: %f; acceleration: %f", reference_speed_, reference_acceleration_);
   segment_times =
       estimateSegmentTimes(polynomial_vertices_, reference_speed_,
                            reference_acceleration_, kFabianConstant);
